@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+import contextily as cx
 import warnings
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
@@ -155,21 +156,23 @@ def boundaries_analyses(boundaries):
     fig.tight_layout()
     _save_fig(fig, "boundaries_area_boxplot.png")
 
-    # Map: All fields as proportional bubbles by grower
-    fig, ax = plt.subplots(figsize=(10, 8))
-    cents = boundaries.geometry.centroid
-    sizes = np.sqrt(boundaries["area_acres"]) * 35
+    # Map: Faceted bubble maps with contextily basemap by grower
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    scale = 55
     colors = {"Illinois": "#66c2a5", "Iowa": "#fc8d62", "Nebraska": "#8da0cb"}
-    for label, grp in boundaries.groupby("grower"):
-        mask = grp.index
-        ax.scatter(cents.x[mask], cents.y[mask],
-                   s=sizes.iloc[mask], c=colors[label], label=label,
+    for ax, (label, grp) in zip(axes, boundaries.groupby("grower")):
+        grp_p = grp.to_crs("EPSG:3857")
+        cents = grp_p.geometry.centroid
+        sizes = np.sqrt(grp_p["area_acres"]) * scale
+        ax.scatter(cents.x, cents.y, s=sizes, c=colors[label],
                    alpha=0.7, edgecolor="black", linewidth=0.5)
-    for acres, sz in [(10, np.sqrt(10) * 35), (100, np.sqrt(100) * 35), (300, np.sqrt(300) * 35)]:
-        ax.scatter([], [], s=sz, c="gray", alpha=0.4, edgecolor="black", linewidth=0.5, label=f"{acres} ac")
-    ax.legend(title="Grower / Size", loc="lower right", fontsize=8, title_fontsize=9)
-    ax.set_title("Field Locations by Grower (bubble = area)", fontweight="bold")
-    ax.set_axis_off()
+        cx.add_basemap(ax, source=cx.providers.CartoDB.Positron)
+        ax.set_title(label, fontweight="bold")
+        ax.set_axis_off()
+    for acres, sz in [(10, np.sqrt(10) * scale), (100, np.sqrt(100) * scale), (300, np.sqrt(300) * scale)]:
+        axes[-1].scatter([], [], s=sz, c="gray", alpha=0.4, edgecolor="black", linewidth=0.5, label=f"{acres} ac")
+    axes[-1].legend(title="Field size", loc="upper right", fontsize=8, title_fontsize=9)
+    fig.suptitle("Field Locations by Grower (bubble = area)", fontsize=14, fontweight="bold")
     fig.tight_layout()
     _save_fig(fig, "boundaries_field_map.png")
 
@@ -256,28 +259,37 @@ def cdl_analyses(composition, rotation, boundaries):
     fig.tight_layout()
     _save_fig(fig, "cdl_rotation_diversity.png")
 
-    # Map: Dominant CDL crop as proportional bubbles (2025)
+    # Map: Faceted CDL crop maps with contextily basemap by grower
     dom_2025 = dominant[dominant["year"] == 2025].copy()
-    b_map = boundaries[["field_id", "geometry", "area_acres"]].merge(
+    b_map = boundaries[["field_id", "geometry", "area_acres", "grower"]].merge(
         dom_2025[["field_id", "crop_name"]], on="field_id", how="inner"
     )
     b_map = gpd.GeoDataFrame(b_map, geometry="geometry")
-    fig, ax = plt.subplots(figsize=(10, 8))
-    cents = b_map.geometry.centroid
-    sizes = np.sqrt(b_map["area_acres"]) * 35
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    scale = 55
     crop_palette = {"Corn": "#f0c75e", "Soybeans": "#6db46d", "Grass/Pasture": "#b8c4a8",
                     "Forest": "#4a7c59", "Alfalfa": "#c4a882", "Winter Wheat": "#d4a04a"}
-    for crop in b_map["crop_name"].unique():
-        mask = b_map["crop_name"] == crop
-        color = crop_palette.get(crop, "#999999")
-        ax.scatter(cents.x[mask], cents.y[mask],
-                   s=sizes[mask], c=color, label=crop,
-                   alpha=0.7, edgecolor="black", linewidth=0.5)
-    for acres, sz in [(10, np.sqrt(10) * 35), (100, np.sqrt(100) * 35), (300, np.sqrt(300) * 35)]:
-        ax.scatter([], [], s=sz, c="gray", alpha=0.4, edgecolor="black", linewidth=0.5, label=f"{acres} ac")
-    ax.legend(title="Crop / Size", loc="lower right", fontsize=8, title_fontsize=9)
-    ax.set_title("Dominant CDL Crop Per Field, 2025 (bubble = area)", fontweight="bold")
-    ax.set_axis_off()
+    for ax, (label, grp) in zip(axes, b_map.groupby("grower")):
+        grp_p = grp.to_crs("EPSG:3857")
+        cents = grp_p.geometry.centroid
+        sizes = np.sqrt(grp_p["area_acres"]) * scale
+        for crop in grp_p["crop_name"].unique():
+            mask = grp_p["crop_name"] == crop
+            color = crop_palette.get(crop, "#999999")
+            ax.scatter(cents.x[mask], cents.y[mask], s=sizes[mask],
+                       c=color, label=crop, alpha=0.7, edgecolor="black", linewidth=0.5)
+        cx.add_basemap(ax, source=cx.providers.CartoDB.Positron)
+        ax.set_title(label, fontweight="bold")
+        ax.set_axis_off()
+    handles = [plt.Line2D([0], [0], marker="o", linestyle="", markersize=8,
+                          color=crop_palette.get(c, "#999999"), label=c)
+               for c in b_map["crop_name"].unique()]
+    for acres, sz in [(10, np.sqrt(10) * scale), (100, np.sqrt(100) * scale), (300, np.sqrt(300) * scale)]:
+        handles.append(plt.Line2D([0], [0], marker="o", linestyle="", markersize=np.sqrt(sz),
+                                  color="gray", alpha=0.4, label=f"{acres} ac"))
+    fig.legend(handles=handles, title="Crop / Size", loc="upper right",
+               fontsize=8, title_fontsize=9, bbox_to_anchor=(0.92, 0.92))
+    fig.suptitle("Dominant CDL Crop Per Field, 2025 (bubble = area)", fontsize=14, fontweight="bold")
     fig.tight_layout()
     _save_fig(fig, "cdl_dominant_crop_map.png")
 
@@ -369,25 +381,31 @@ def weather_analyses(weather, boundaries):
     fig.tight_layout()
     _save_fig(fig, "weather_temp_precip_scatter.png")
 
-    # Map: Field-level average temperature as proportional bubbles
-    field_avg_map = boundaries[["field_id", "geometry", "area_acres"]].merge(
-        field_avg, on="field_id", how="inner"
+    # Map: Faceted temperature maps with contextily basemap by grower
+    field_avg_map = boundaries[["field_id", "geometry", "area_acres", "grower"]].merge(
+        field_avg.drop(columns=["grower"], errors="ignore"), on="field_id", how="inner"
     )
     field_avg_map = gpd.GeoDataFrame(field_avg_map, geometry="geometry")
-    fig, ax = plt.subplots(figsize=(10, 8))
-    cents = field_avg_map.geometry.centroid
-    sizes = np.sqrt(field_avg_map["area_acres"]) * 35
-    norm = plt.Normalize(field_avg_map["avg_temp"].min(), field_avg_map["avg_temp"].max())
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    scale = 55
+    vmin, vmax = field_avg_map["avg_temp"].min(), field_avg_map["avg_temp"].max()
+    norm = plt.Normalize(vmin, vmax)
     cmap = plt.cm.RdYlBu_r
-    sc = ax.scatter(cents.x, cents.y, s=sizes, c=field_avg_map["avg_temp"],
-                    cmap=cmap, norm=norm, alpha=0.7, edgecolor="black", linewidth=0.5)
-    cbar = fig.colorbar(sc, ax=ax, shrink=0.6)
+    for ax, (label, grp) in zip(axes, field_avg_map.groupby("grower")):
+        grp_p = grp.to_crs("EPSG:3857")
+        cents = grp_p.geometry.centroid
+        sizes = np.sqrt(grp_p["area_acres"]) * scale
+        sc = ax.scatter(cents.x, cents.y, s=sizes, c=grp_p["avg_temp"],
+                        cmap=cmap, norm=norm, alpha=0.7, edgecolor="black", linewidth=0.5)
+        cx.add_basemap(ax, source=cx.providers.CartoDB.Positron)
+        ax.set_title(label, fontweight="bold")
+        ax.set_axis_off()
+    cbar = fig.colorbar(sc, ax=axes, shrink=0.8, pad=0.02)
     cbar.set_label("Mean Temp (°C)", fontsize=10)
-    for acres, sz in [(10, np.sqrt(10) * 35), (100, np.sqrt(100) * 35), (300, np.sqrt(300) * 35)]:
-        ax.scatter([], [], s=sz, c="gray", alpha=0.4, edgecolor="black", linewidth=0.5, label=f"{acres} ac")
-    ax.legend(title="Field size", loc="lower right", fontsize=8, title_fontsize=9)
-    ax.set_title("Field-Level Average Temperature, 2021–2025 (bubble = area)", fontweight="bold")
-    ax.set_axis_off()
+    for acres, sz in [(10, np.sqrt(10) * scale), (100, np.sqrt(100) * scale), (300, np.sqrt(300) * scale)]:
+        axes[-1].scatter([], [], s=sz, c="gray", alpha=0.4, edgecolor="black", linewidth=0.5, label=f"{acres} ac")
+    axes[-1].legend(title="Field size", loc="upper right", fontsize=8, title_fontsize=9)
+    fig.suptitle("Field-Level Average Temperature, 2021–2025 (bubble = area)", fontsize=14, fontweight="bold")
     fig.tight_layout()
     _save_fig(fig, "weather_avg_temp_map.png")
 
