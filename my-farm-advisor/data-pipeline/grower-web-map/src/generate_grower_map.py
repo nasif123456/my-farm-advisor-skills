@@ -5,11 +5,15 @@
 Scans the runtime grower tree, reads farm-level field_boundaries.geojson
 files, and produces a grower_map.html per grower under
 growers/<grower>/derived/maps/.
+
+Enhancements include SSURGO soil data, weather summaries, NDVI peak
+values, hover highlighting, farm legend, and total acreage.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from pathlib import Path
@@ -20,7 +24,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 sys.path.insert(0, str(SCRIPTS_DIR / "lib"))
 
-from paths import DATA_ROOT, GROWERS_ROOT, farm_boundary_path, farm_dir
+from paths import DATA_ROOT, GROWERS_ROOT, farm_boundary_path, farm_dir, field_dir
 
 
 HTML_TEMPLATE = r"""<!DOCTYPE html>
@@ -39,27 +43,33 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans
   width: 280px; background: #f8f9fa; border-right: 1px solid #ddd;
   padding: 16px; overflow-y: auto; flex-shrink: 0;
 }}
-#sidebar h2 {{ font-size: 1.1em; margin-bottom: 12px; color: #1B5E20; }}
-#sidebar p {{ font-size: 0.85em; color: #555; margin-bottom: 12px; }}
+#sidebar h2 {{ font-size: 1.1em; margin-bottom: 4px; color: #1B5E20; }}
+.summary {{ font-size: 0.85em; color: #555; margin-bottom: 14px; }}
+.section-title {{ font-size: 0.75em; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; }}
+.legend-item {{ display: flex; align-items: center; gap: 8px; font-size: 0.85em; padding: 3px 0; }}
+.legend-color {{ width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.1); }}
 #field-list {{ list-style: none; }}
 #field-list li {{
-  padding: 8px 10px; margin: 2px 0; border-radius: 4px;
-  cursor: pointer; font-size: 0.9em; background: #fff;
+  padding: 6px 8px; margin: 2px 0; border-radius: 4px;
+  cursor: pointer; font-size: 0.85em; background: #fff;
   border: 1px solid #e0e0e0; transition: background 0.15s;
 }}
 #field-list li:hover {{ background: #e8f5e9; border-color: #66bb6a; }}
 #field-list li .field-name {{ font-weight: 600; color: #1B5E20; }}
-#field-list li .field-farm {{ font-size: 0.8em; color: #777; }}
+#field-list li .field-meta {{ font-size: 0.8em; color: #888; }}
 #map {{ flex: 1; }}
-.leaflet-popup-content {{ font-size: 0.9em; line-height: 1.5; }}
+.leaflet-popup-content {{ font-size: 0.9em; line-height: 1.5; min-width: 180px; }}
 .popup-label {{ font-weight: 600; color: #333; }}
+.popup-divider {{ margin: 6px 0; border: none; border-top: 1px solid #eee; }}
 </style>
 </head>
 <body>
 <div id="container">
 <div id="sidebar">
 <h2>{grower_display}</h2>
-<p>{farm_count} farm{farm_count_plural} &middot; {field_count} field{field_count_plural}</p>
+<p class="summary">{farm_count} farm{farm_count_plural} &middot; {field_count} field{field_count_plural} &middot; {total_acres} ac</p>
+{legend_items}
+<div class="section-title">Fields</div>
 <ul id="field-list">
 {field_list_items}
 </ul>
@@ -92,8 +102,9 @@ var geojsonData = {geojson};
 
 var fieldLayers = [];
 var bounds = L.latLngBounds();
+var allLayers = [];
 
-L.geoJSON(geojsonData, {{
+var fields = L.geoJSON(geojsonData, {{
   style: function(feature) {{
     return {{
       color: feature.properties._color || '#2E7D32',
@@ -102,6 +113,7 @@ L.geoJSON(geojsonData, {{
     }};
   }},
   onEachFeature: function(feature, layer) {{
+    allLayers.push(layer);
     fieldLayers.push({{
       id: feature.properties.field_id,
       layer: layer,
@@ -109,13 +121,52 @@ L.geoJSON(geojsonData, {{
     if (layer.getBounds) {{
       bounds.extend(layer.getBounds());
     }}
-    layer.bindPopup(
-      '<div><span class="popup-label">Field:</span> ' + (feature.properties.display_name || feature.properties.field_id) + '</div>' +
-      '<div><span class="popup-label">Farm:</span> ' + (feature.properties._farm_name || '') + '</div>' +
-      '<div><span class="popup-label">Grower:</span> ' + (feature.properties._grower_name || '') + '</div>' +
-      '<div><span class="popup-label">Area:</span> ' + (feature.properties.area_acres ? feature.properties.area_acres.toFixed(1) + ' ac' : '') + '</div>' +
-      (feature.properties.county_name ? '<div><span class="popup-label">County:</span> ' + feature.properties.county_name + '</div>' : '')
-    );
+
+    var p = feature.properties;
+    var name = p.display_name || p.field_id || '';
+    var farm = p._farm_name || '';
+    var grower = p._grower_name || '';
+    var area = p.area_acres ? p.area_acres.toFixed(1) + ' ac' : '';
+    var county = p.county_name || '';
+
+    var popup = '<b>' + name + '</b><br>' +
+      'Farm: ' + farm + ' | ' + grower + '<br>' +
+      area + (county ? ' | ' + county : '');
+
+    if (p._ssurgo_soil) {{
+      popup += '<hr class="popup-divider">' +
+        '<span class="popup-label">Soil:</span> ' + p._ssurgo_soil +
+        (p._ssurgo_drainage ? ' (' + p._ssurgo_drainage + ')' : '') + '<br>' +
+        '<span class="popup-label">OM:</span> ' + (p._ssurgo_om != null ? p._ssurgo_om + '%' : '--') +
+        '  <span class="popup-label">pH:</span> ' + (p._ssurgo_ph != null ? p._ssurgo_ph : '--');
+    }}
+
+    if (p._weather_temp != null) {{
+      popup += '<hr class="popup-divider">' +
+        '<span class="popup-label">Temp:</span> ' + p._weather_temp + '&deg;C' +
+        '  <span class="popup-label">Rain:</span> ' + p._weather_precip + ' mm/yr';
+    }}
+
+    if (p._ndvi_corn != null || p._ndvi_soy != null) {{
+      popup += '<hr class="popup-divider">' +
+        '<span class="popup-label">NDVI peak:</span>&nbsp;' +
+        (p._ndvi_corn != null ? 'Corn ' + p._ndvi_corn : '') +
+        (p._ndvi_corn != null && p._ndvi_soy != null ? ' | ' : '') +
+        (p._ndvi_soy != null ? 'Soy ' + p._ndvi_soy : '');
+    }}
+
+    layer.bindPopup(popup);
+
+    layer.on({{
+      mouseover: function(e) {{
+        var l = e.target;
+        l.setStyle({{ weight: 4, fillOpacity: 0.5 }});
+        l.bringToFront();
+      }},
+      mouseout: function(e) {{
+        fields.resetStyle(e.target);
+      }},
+    }});
   }}
 }}).addTo(map);
 
@@ -156,6 +207,15 @@ FARM_COLORS = [
 ]
 
 
+def _safe_float(val: str | None) -> float | None:
+    if val is None or val.strip() == "":
+        return None
+    try:
+        return float(val)
+    except ValueError:
+        return None
+
+
 def _discover_growers() -> list[str]:
     return sorted(
         d.name for d in GROWERS_ROOT.iterdir() if d.is_dir() and (d / "farms").is_dir()
@@ -181,17 +241,99 @@ def _load_grower_json(grower_slug: str) -> dict:
     return {}
 
 
+def _read_ssurgo_summary(field_dir: Path) -> dict:
+    path = field_dir / "soil" / "ssurgo_summary.csv"
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            return {
+                "dominant_soil": row.get("dominant_soil", ""),
+                "drainage_class": row.get("drainage_class", ""),
+                "avg_om_pct": _safe_float(row.get("avg_om_pct")),
+                "avg_ph": _safe_float(row.get("avg_ph")),
+            }
+    return {}
+
+
+def _read_weather_summary(field_dir: Path) -> dict:
+    path = field_dir / "weather" / "daily_weather.csv"
+    if not path.exists():
+        return {}
+    count = 0
+    total_temp = 0.0
+    total_precip = 0.0
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            try:
+                total_temp += float(row.get("T2M", 0))
+                total_precip += float(row.get("PRECTOTCORR", 0))
+                count += 1
+            except (ValueError, TypeError):
+                continue
+    if count == 0:
+        return {}
+    return {
+        "avg_temp_c": round(total_temp / count, 1),
+        "total_precip_mm": round(total_precip, 0),
+    }
+
+
+def _read_ndvi_summary(field_dir: Path) -> dict:
+    path = field_dir / "derived" / "summaries" / "ndvi_card_summary.json"
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        cards = data.get("cards", {})
+        result: dict[str, float | None] = {"ndvi_corn_peak": None, "ndvi_soy_peak": None}
+        corn_peak = cards.get("corn_peak_95", {})
+        soy_peak = cards.get("soybean_peak_95", {})
+        if isinstance(corn_peak, dict):
+            mv = corn_peak.get("mean_ndvi")
+            if mv is not None:
+                result["ndvi_corn_peak"] = round(float(mv), 3)
+        if isinstance(soy_peak, dict):
+            mv = soy_peak.get("mean_ndvi")
+            if mv is not None:
+                result["ndvi_soy_peak"] = round(float(mv), 3)
+        return result
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+
+
 def _build_field_list_html(items: list[dict]) -> str:
     lines = []
     for item in items:
         name = item.get("display_name") or item.get("field_id", "?")
         farm = item.get("_farm_name", "")
+        area = item.get("area_acres")
+        area_str = f"{area:.1f} ac" if area else ""
         fid = item.get("field_id", "")
         lines.append(
             f'<li onclick="zoomToField({json.dumps(fid)})">'
             f'<div class="field-name">{name}</div>'
-            f'<div class="field-farm">{farm}</div>'
+            f'<div class="field-meta">{farm}{" · " + area_str if area_str else ""}</div>'
             f"</li>"
+        )
+    return "\n".join(lines)
+
+
+def _build_legend_html(farm_stats: list[dict]) -> str:
+    if not farm_stats:
+        return ""
+    lines = ['<div class="section-title">Farms</div>']
+    for stat in farm_stats:
+        color = stat.get("color", "#999")
+        name = stat.get("name", "?")
+        fields = stat.get("field_count", 0)
+        acres = stat.get("total_acres", 0)
+        label = f"{name} ({fields} field{'s' if fields != 1 else ''}, {acres:.1f} ac)"
+        lines.append(
+            f'<div class="legend-item">'
+            f'<div class="legend-color" style="background:{color}"></div>'
+            f"<span>{label}</span>"
+            f"</div>"
         )
     return "\n".join(lines)
 
@@ -202,6 +344,7 @@ def generate_grower_map(grower_slug: str) -> Path:
 
     all_features: list[dict] = []
     field_list_items: list[dict] = []
+    farm_stats: list[dict] = []
 
     farms = _discover_farms(grower_slug)
     if not farms:
@@ -217,13 +360,30 @@ def generate_grower_map(grower_slug: str) -> Path:
         farm_meta = _load_farm_json(grower_slug, farm_slug)
         farm_display = farm_meta.get("display_name", farm_slug)
         color = FARM_COLORS[idx % len(FARM_COLORS)]
+        farm_field_count = 0
+        farm_acres = 0.0
 
         gdf = gpd.read_file(boundary_path)
         for _, row in gdf.iterrows():
             props = dict(row.drop("geometry").to_dict())
+            fid = props.get("field_id", "")
+            fs = field_dir(grower_slug, farm_slug, fid)
+            ssurgo = _read_ssurgo_summary(fs)
+            weather = _read_weather_summary(fs)
+            ndvi = _read_ndvi_summary(fs)
+
             props["_color"] = color
             props["_farm_name"] = farm_display
             props["_grower_name"] = grower_display
+            props["_ssurgo_soil"] = ssurgo.get("dominant_soil", "")
+            props["_ssurgo_drainage"] = ssurgo.get("drainage_class", "")
+            props["_ssurgo_om"] = ssurgo.get("avg_om_pct")
+            props["_ssurgo_ph"] = ssurgo.get("avg_ph")
+            props["_weather_temp"] = weather.get("avg_temp_c")
+            props["_weather_precip"] = weather.get("total_precip_mm")
+            props["_ndvi_corn"] = ndvi.get("ndvi_corn_peak")
+            props["_ndvi_soy"] = ndvi.get("ndvi_soy_peak")
+
             geom = row.geometry
             feat = {
                 "type": "Feature",
@@ -234,15 +394,29 @@ def generate_grower_map(grower_slug: str) -> Path:
             }
             all_features.append(feat)
             field_list_items.append(props)
+            farm_field_count += 1
+            farm_acres += float(props.get("area_acres", 0) or 0)
+
+        farm_stats.append(
+            {
+                "name": farm_display,
+                "color": color,
+                "field_count": farm_field_count,
+                "total_acres": round(farm_acres, 1),
+            }
+        )
 
     if not all_features:
         print(f"  [skip] no field features found for grower {grower_slug}")
         return None
 
+    total_acres = round(sum(s["total_acres"] for s in farm_stats), 1)
+
     fc = {"type": "FeatureCollection", "features": all_features}
     geojson_str = json.dumps(fc, default=str)
 
     field_list_html = _build_field_list_html(field_list_items)
+    legend_html = _build_legend_html(farm_stats)
     plural_farm = "s" if len(farms) != 1 else ""
     plural_field = "s" if len(all_features) != 1 else ""
 
@@ -253,6 +427,8 @@ def generate_grower_map(grower_slug: str) -> Path:
         farm_count_plural=plural_farm,
         field_count=len(all_features),
         field_count_plural=plural_field,
+        total_acres=total_acres,
+        legend_items=legend_html,
         field_list_items=field_list_html,
         geojson=geojson_str,
     )

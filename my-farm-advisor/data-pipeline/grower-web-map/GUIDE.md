@@ -15,11 +15,15 @@ Generate a self-contained interactive HTML web map for each grower in the My Far
 **Key Features:**
 
 - **Self-contained**: Single HTML file per grower with all field data embedded
-- **Field polygons**: Rendered from the actual pipeline boundary GeoJSON
-- **Click to inspect**: Click any field to see grower, farm, field name, area, and county
+- **Dual basemaps**: Satellite (ESRI World Imagery) and Street Map (OSM) with layer toggle
+- **Field polygons**: Rendered from the actual pipeline boundary GeoJSON, colored by farm
+- **Hover highlight**: Fields highlight on mouse hover (thicker border, layered above)
+- **Click to inspect**: Popups with grower, farm, field name, area, county, SSURGO soil data (dominant type, drainage, OM%, pH), 5-year weather averages (temperature, precipitation), and peak NDVI (corn, soybean)
+- **Farm legend**: Color swatches with field count and acreage per farm
 - **Field list sidebar**: Click a field name to zoom directly to that field
+- **Total acreage**: Summary shown in sidebar header
 - **Auto-fit**: Map automatically frames all fields on load
-- **Lightweight**: Small HTML output (under 50KB for typical farm sizes)
+- **Lightweight**: Output under 20KB for typical farms
 
 ## When to Use
 
@@ -73,6 +77,8 @@ growers/
 
 - **Zoom in/out**: Mouse scroll, pinch, or +/- buttons
 - **Pan**: Click and drag
-- **Inspect field**: Click any field polygon
+- **Inspect field**: Click any field polygon — popup shows field, farm, grower, soil (dominant type, drainage, OM%, pH), weather (5-year avg temp, annual precip), and peak NDVI
+- **Hover**: Hover over a field to highlight it with a thicker border
 - **Zoom to field**: Click a field name in the sidebar list
 - **Basemap**: Satellite (default) or Street Map — toggle in the top-right layer control
+- **Legend**: Farm color swatches with field count and acreage in sidebar

@@ -50,9 +50,11 @@ open "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/growers/illinois-grower/derived/m
 
 The generated HTML map includes:
 - Leaflet.js with satellite (ESRI World Imagery) and street map (OSM) basemaps with toggle
-- Field polygon boundaries colored by farm
-- Click popups showing grower, farm, field name, area, county
-- Sidebar field list — clicking a field name zooms the map to it
+- Field polygon boundaries colored by farm, with hover highlight (thicker stroke, layered above)
+- Click popups showing grower, farm, field name, area, county, SSURGO soil data (dominant type, drainage, OM%, pH), 5-year weather averages (temp, precipitation), and peak NDVI (corn, soybean)
+- Farm color legend with field count and total acreage per farm
+- Sidebar field list with farm name and acreage — clicking a field name zooms the map to it
+- Total acreage summary in sidebar header
 - Map auto-fits to show all fields on load
 
 ## Local validation
