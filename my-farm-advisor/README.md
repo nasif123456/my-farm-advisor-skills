@@ -325,3 +325,43 @@ This skill is the main farm-specific intelligence layer. The rest of the reposit
 2. Open the matching area in [`INDEX.md`](INDEX.md).
 3. Follow the linked `GUIDE.md` or `AGENTS.md`.
 4. Keep outputs tied back to fields, source data, and reproducible methods.
+
+## Assignment 3: Field-Year Dashboard
+
+### Workflow
+[`assignment3/GUIDE.md`](assignment3/GUIDE.md) —
+`data-pipeline/src/scripts/assignment3/assignment3_main.py` produces a 4-panel
+static dashboard (NDVI, Precipitation, Temperature, Cumulative GDD) for one
+field-year, with event detection and cross-panel annotations.
+
+### Input Files (from data-pipeline)
+- Field boundary: `growers/<grower>/farms/<farm>/boundary/field_boundaries.geojson`
+- CDL composition: `growers/<grower>/farms/<farm>/derived/tables/<farm>_cdl_*_full_composition.csv`
+- NDVI rasters: `growers/<grower>/farms/<farm>/fields/<field>/satellite/{landsat,sentinel}/<year>/*_ndvi.tif`
+- Weather: `growers/<grower>/farms/<farm>/derived/tables/<farm>_weather.csv`
+
+### Weather Metrics Calculated
+- Daily Tmin, Tmax, Tmean (°C)
+- Daily precipitation (mm)
+- Daily Growing Degree Days (base 10°C, cap 30°C) with cumulative sum
+
+### Dashboard Output
+`shared/assignment3/derived/reports/field_year_dashboard_<grower>_<field>_<year>.png`
+
+### How to Rerun
+```bash
+export DATA_PIPELINE_DATA_ROOT=/path/to/my-farm-advisor-runtime
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/assignment3/assignment3_main.py \
+  --grower-slug iowa-grower \
+  --farm-slug iowa-grower-iowa \
+  --field-id osm-1360386537 \
+  --year 2024
+```
+
+Use `--all-years` to generate dashboards for 2021–2025.
+
+### Known Limitations
+- Season limited to Mar–Nov; winter months excluded
+- NDVI gaps > 40 days not filled (gaps reported in coverage markdown)
