@@ -1,0 +1,26 @@
+# Composite Metric Weights
+# All weights sum to 1.0 within each score.
+
+soil_health_score:
+  organic_matter: 0.25
+  ph_suitability: 0.20
+  available_water_capacity: 0.20
+  drainage: 0.20
+  slope_erosion: 0.15
+
+crop_stress_indicator:
+  low_ndvi_component: 0.50
+  ndvi_variability: 0.30
+  early_decline: 0.20
+
+field_intelligence_score:
+  crop_health: 0.40
+  soil_condition: 0.30
+  weather_suitability: 0.20
+  stability: 0.10
+
+conservation_priority:
+  soil_limitation: 0.35
+  crop_stress: 0.30
+  erosion_risk: 0.20
+  weather_exposure: 0.15

@@ -1,0 +1,22 @@
+# Crop-specific parameters for GDD and phenology
+# GDD base temperatures by crop type (Celsius)
+
+crop_parameters:
+  corn:
+    gdd_base_temp_c: 10
+    label: Corn
+  soybean:
+    gdd_base_temp_c: 10
+    label: Soybean
+  wheat:
+    gdd_base_temp_c: 0
+    label: Wheat
+  cotton:
+    gdd_base_temp_c: 15.5
+    label: Cotton
+  sorghum:
+    gdd_base_temp_c: 10
+    label: Sorghum
+  default:
+    gdd_base_temp_c: 10
+    label: Default
