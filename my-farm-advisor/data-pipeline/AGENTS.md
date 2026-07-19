@@ -184,6 +184,70 @@ cd ../..
 ./scripts/validate.sh
 ```
 
+## Dashboard generator
+
+Generate an offline weather dashboard for an existing farm. Use this as the
+final pipeline stage or standalone against an already-built farm directory.
+
+Standalone generation with explicit farm directory:
+
+```bash
+export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runtime
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/reporting/generate_dashboard.py \
+  --farm-dir /path/to/farm
+```
+
+Standalone with automatic discovery:
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/reporting/generate_dashboard.py
+```
+
+Custom output path and skip satellite basemap:
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/reporting/generate_dashboard.py \
+  --farm-dir /path/to/farm \
+  --output /path/to/output.html \
+  --no-basemap
+```
+
+Via the orchestration wrapper (`farm_dashboard.py`):
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/farm_dashboard.py dashboard generate \
+  --farm-dir /path/to/farm
+```
+
+Full pipeline with dashboard as final stage (opt-in):
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/run_farm_pipeline.py \
+  --grower-slug iowa-grower \
+  --farm-slug iowa-grower-iowa \
+  --generate-dashboard
+```
+
+Dashboard output is written atomically (temp file + rename) to
+`<farm-dir>/derived/dashboards/<farm-id>_dashboard.html` by default.
+
+The generator vends Plotly.js (v2.x) on first use to
+`${DATA_PIPELINE_DATA_ROOT}/data-pipeline/shared/vendor/`. Satellite basemap
+tiles are cached under `shared/vendor/tile_cache/`.
+
+### Discovery precedence
+
+1. `--farm-dir <path>` — direct path to farm output directory.
+2. `--growers-dir <path>` — path to growers root.
+3. `DATA_PIPELINE_DATA_ROOT` env var + `growers/` subpath.
+4. Home-directory scan for the structural signature.
+
 ## Local workflow notes
 
 - Keep this skill tiny and operational: copy baseline files from `src/` into live storage, preserve live data across reboot or redeploy, and use auditable `rsync` commands.

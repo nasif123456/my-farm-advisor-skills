@@ -1,0 +1,41 @@
+# Composite Metric Weights
+# All weights sum to 1.0 within each score.
+# Keys must match the constants in app/metrics.py.
+
+field_intelligence_score:
+  crop_health: 0.45
+  soil_condition: 0.25
+  weather_suitability: 0.20
+  stability: 0.10
+
+crop_stress_indicator:
+  low_ndvi: 0.45
+  ndvi_decline: 0.25
+  variability: 0.20
+  weather_stress: 0.10
+
+# Soil Condition Screening Score components and weights.
+# Each component is scored independently on 0-100 before weighting.
+# Missing components are dropped and remaining weights rescaled.
+# See docs/metric_methodology.md for the scoring formulas.
+soil_condition_screening_score:
+  organic_matter: 0.30
+  ph_suitability: 0.20
+  available_water_capacity: 0.20
+  drainage: 0.20
+  cec: 0.10
+
+# Soil Screening Categories — thresholds on the final 0-100 score.
+# Labels are used directly in the dashboard display.
+soil_screening_categories:
+  "Strong screening condition": 80
+  "Moderately strong screening condition": 65
+  "Moderate screening condition": 50
+  "Constrained screening condition": 35
+  "Poor screening condition": 0
+
+conservation_priority:
+  erosion_risk: 0.30
+  drainage_concern: 0.30
+  soil_condition_screening: 0.25
+  sand_content: 0.15

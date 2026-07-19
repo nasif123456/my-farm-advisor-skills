@@ -217,3 +217,183 @@ bash -lc 'export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runti
 
 This ensures every pipeline step (including geopandas/rasterio operations) uses
 the shared environment that lives alongside the replicated scripts.
+
+## Offline Grower Field Weather Dashboard
+
+The dashboard generator produces a single self-contained HTML file with zero
+runtime external dependencies.
+
+### What it produces
+
+- A two-pane interactive page: a Plotly field map (left) and two vertically
+  stacked charts for Growing Degree Days and Rainfall (right).
+- The HTML embeds Plotly.js (vendored at build time), all field boundary
+  geometry in Web Mercator, per-field metadata, processed weather records,
+  and (optionally) a satellite basemap as a base64 PNG.
+- Works when opened directly from disk via `file://` — no web server needed.
+
+### Pipeline integration (opt-in)
+
+Dashboard generation is an opt-in final pipeline stage. It does not run by
+default:
+
+```bash
+export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runtime
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/run_farm_pipeline.py \
+  --grower-slug iowa-grower \
+  --farm-slug iowa-grower-iowa \
+  --generate-dashboard
+```
+
+Add `--no-basemap` to skip satellite imagery acquisition if offline:
+
+```bash
+  --generate-dashboard --no-basemap
+```
+
+### Standalone mode
+
+Generate a dashboard for an existing farm output directory without re-running
+any pipeline stages:
+
+```bash
+export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runtime
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/reporting/generate_dashboard.py \
+  --farm-dir /path/to/farm
+```
+
+Or via the orchestration wrapper:
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/farm_dashboard.py dashboard generate \
+  --farm-dir /path/to/farm
+```
+
+### Automatic farm directory discovery
+
+If `--farm-dir` and `--growers-dir` are omitted, the generator searches in
+this precedence order:
+
+1. `DATA_PIPELINE_DATA_ROOT` environment variable
+2. Home-directory scan for directories matching the structural signature
+   `growers/<grower>/farms/<farm>/boundary/field_boundaries.geojson` and
+   `fields/`
+
+If exactly one valid farm directory is found, it is used automatically. If
+multiple candidates exist, the tool fails with a clear error listing all
+candidates.
+
+### Explicit output path
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/reporting/generate_dashboard.py \
+  --farm-dir /path/to/farm \
+  --output /path/to/custom_dashboard.html
+```
+
+Default output: `<farm-dir>/derived/dashboards/<farm-id>_dashboard.html`
+
+### Examples
+
+Explicit standalone generation:
+
+```bash
+export DATA_PIPELINE_DATA_ROOT=~/my-farm-advisor-runtime
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/reporting/generate_dashboard.py \
+  --farm-dir ~/my-farm-advisor-runtime/data-pipeline/growers/iowa-grower/farms/iowa-grower-iowa
+```
+
+Discovery mode (one farm only):
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/reporting/generate_dashboard.py
+```
+
+Full pipeline with dashboard:
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/run_farm_pipeline.py \
+  --grower-slug iowa-grower \
+  --farm-slug iowa-grower-iowa \
+  --generate-dashboard
+```
+
+### Input data assumptions
+
+The generator expects the canonical farm output layout:
+
+```
+<farm-dir>/
+├── boundary/
+│   └── field_boundaries.geojson
+├── fields/
+│   └── <field-id>/
+│       ├── field.json
+│       └── weather/
+│           └── daily_weather.csv
+└── derived/
+    └── tables/
+        └── <farm-specific-weather-aggregate>.csv
+```
+
+- `field_boundaries.geojson`: `FeatureCollection` with `field_id` properties
+  and `area_acres` (optional). Polygons and MultiPolygons supported.
+- `field.json`: Must contain `display_name` if a human-readable name is
+  desired; falls back to `field_id`.
+- `daily_weather.csv`: Must contain columns `date`, `T2M_MIN`, `T2M_MAX`,
+  `PRECTOTCORR` (NASA POWER schema). Header-only CSVs are tolerated and
+  produce a `(no data)` label.
+
+### Weather calculations
+
+For each field-year with usable data:
+
+- **Last frost date**: Latest day before July 1 where `T2M_MIN <= 0.0°C`.
+  Falls back to January 1 if no qualifying frost is found.
+- **Daily GDD**: `max((T2M_MAX + T2M_MIN) / 2 - 10.0, 0)`.
+- **Daily rainfall (in)**: `PRECTOTCORR (mm) × 0.0393701`.
+- **Cumulative values**: Running totals starting from the last frost date,
+  spanning only valid observation days (no zero-filling).
+
+### Offline / runtime dependency guarantee
+
+The generated HTML has zero runtime external dependencies:
+- No CDN references, API calls, externally loaded fonts, CSS, JS, images,
+  or tiles.
+- Plotly.js v2.x is downloaded and vendored at build time into
+  `<DATA_PIPELINE_DATA_ROOT>/data-pipeline/shared/vendor/` on first use.
+- Satellite basemap tiles (Esri World Imagery) are downloaded, stitched,
+  cached, and base64-embedded at build time only.
+
+### Satellite basemap behavior
+
+- At generation time, the generator may download Esri World Imagery tiles for
+  the farm Mercator extent.
+- Tiles are stitched with Pillow, cropped to the farm bounds, base64-encoded,
+  and inlined in the HTML via `layout.images` with `layer: 'below'`.
+- Use `--no-basemap` to skip acquisition and render a neutral background.
+- On tile download failure, the dashboard still generates with a visible note
+  that imagery was unavailable.
+
+### Troubleshooting
+
+| Symptom | Likely cause / solution |
+|---|---|
+| `No farm directory found` | Provide `--farm-dir`, `--growers-dir`, or set `DATA_PIPELINE_DATA_ROOT` |
+| `Multiple candidate farm directories found` | Use `--farm-dir` to select one |
+| Farm directory missing `boundary/field_boundaries.geojson` | Run the pipeline's boundary ingestion step first |
+| Farm directory missing `fields/` | Run the pipeline's field bootstrap step first |
+| All fields show `(no data)` for weather | The fields' `weather/daily_weather.csv` files are missing, empty, or header-only |
+| `Failed to download Plotly.js` | Build-time network access required for first run; cached afterward |
+| Tile download failure | Use `--no-basemap` or retry with network access; cached tiles persist |
+| Dashboard shows no weather on charts | No selected field-year combination has usable weather data; verify the CSV schema matches NASA POWER format |

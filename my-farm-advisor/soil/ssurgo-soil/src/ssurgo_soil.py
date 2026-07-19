@@ -43,28 +43,20 @@ except ImportError:
 # NRCS Soil Data Access REST API endpoint
 SDA_URL = "https://sdmdataaccess.sc.egov.usda.gov/Tabular/post.rest"
 
-# Additional soil properties for comprehensive analysis
+# Additional soil properties for comprehensive analysis (reference only — NOT used for column mapping)
 EXTENDED_COLUMNS = [
-    # Horizon properties
-    "hzdept_r",  # Horizon top depth
-    "hzdepb_r",  # Horizon bottom depth
-    "om_r",  # Organic matter
-    "ph1to1h2o_r",  # pH in water
-    "awc_r",  # Available water capacity
-    "claytotal_r",  # Total clay
-    "sandtotal_r",  # Total sand
-    "silttotal_r",  # Total silt
-    "dbthirdbar_r",  # Bulk density
-    "cec7_r",  # CEC at pH 7
-    # Erosion and interpretation
-    "kwfact",  # K-factor (erodibility)
-    "awc_r",  # Available water capacity
-    # Engineering
-    "hydgrpdcd",  # Hydrologic group
-    "drainagecl",  # Drainage class
+    "hzdept_r", "hzdepb_r", "om_r", "ph1to1h2o_r", "awc_r",
+    "claytotal_r", "sandtotal_r", "silttotal_r", "dbthirdbar_r",
+    "cec7_r", "kwfact", "awc_r", "hydgrpdcd", "drainagecl",
 ]
 
-SDA_COLUMNS = EXTENDED_COLUMNS
+# Columns returned by _build_soil_query() — must match its SELECT order exactly.
+SDA_COLUMNS = [
+    "mukey", "muname", "compname", "comppct_r", "drainagecl",
+    "hzdept_r", "hzdepb_r", "om_r", "ph1to1h2o_r", "awc_r",
+    "claytotal_r", "sandtotal_r", "silttotal_r", "dbthirdbar_r",
+    "cec7_r",
+]
 
 # Extended numeric columns
 EXTENDED_NUMERIC_COLUMNS = [
