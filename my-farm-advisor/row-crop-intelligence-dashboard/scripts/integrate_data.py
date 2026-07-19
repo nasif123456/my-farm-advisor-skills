@@ -68,21 +68,28 @@ def load_ndvi_summary(fields_dir: Path, field_ids: list[str], year: int) -> pd.D
     for fid in field_ids:
         summary_path = fields_dir / fid / "derived" / "summaries" / "ndvi_yearly_summary.json"
         card_path = fields_dir / fid / "derived" / "summaries" / "ndvi_card_summary.json"
-        row = {"field_id": fid, "year": year}
+        row: dict[str, Any] = {"field_id": fid, "year": year}
 
-        has_card_data = False
+        # Extract crop-neutral NDVI stats from card summary if available
         if card_path.exists():
             with open(card_path) as f:
                 cards = json.load(f).get("cards", {})
-            for crop_key in ["corn", "soybean"]:
-                card = cards.get(crop_key, {})
+            ndvi_vals = []
+            peak_vals = []
+            for card_key, card in cards.items():
                 if card.get("status") == "available":
-                    row[f"ndvi_{crop_key}"] = card.get("mean_ndvi")
-                    has_card_data = True
-            for peak_key in ["corn_peak_95", "soybean_peak_95"]:
-                peak = cards.get(peak_key, {})
-                if peak.get("status") == "available":
-                    row[f"ndvi_{peak_key}"] = peak.get("mean_ndvi")
+                    mn = card.get("mean_ndvi")
+                    if mn is not None and isinstance(mn, (int, float)):
+                        ndvi_vals.append(mn)
+                    # Peak 95th percentile cards may have mean_ndvi or be under separate keys
+                    if card_key.endswith("_peak_95"):
+                        pk = card.get("mean_ndvi")
+                        if pk is not None and isinstance(pk, (int, float)):
+                            peak_vals.append(pk)
+            if ndvi_vals:
+                row["mean_ndvi"] = sum(ndvi_vals) / len(ndvi_vals)
+            if peak_vals:
+                row["peak_ndvi"] = sum(peak_vals) / len(peak_vals)
 
         if summary_path.exists():
             with open(summary_path) as f:
@@ -94,10 +101,18 @@ def load_ndvi_summary(fields_dir: Path, field_ids: list[str], year: int) -> pd.D
                     row["ndvi_composite_tif"] = yd.get("composite_tif")
                     break
 
-        if not has_card_data:
+        if row.get("scene_count") is None:
+            scene_base = fields_dir / fid / "satellite" / "sentinel" / str(year)
+            if scene_base.exists():
+                row["scene_count"] = sum(1 for p in scene_base.iterdir() if p.is_dir())
+            else:
+                row["scene_count"] = 0
+
+        # Fallback: if no card data, try extracting from scene TIFFs directly
+        if "mean_ndvi" not in row:
             mean_ndvi = _extract_mean_ndvi_from_scenes(fields_dir, fid, year)
             if mean_ndvi is not None:
-                row["ndvi_corn"] = mean_ndvi
+                row["mean_ndvi"] = mean_ndvi
 
         rows.append(row)
     return pd.DataFrame(rows)
@@ -145,7 +160,15 @@ def load_soil_summary(farm_dir: Path) -> pd.DataFrame | None:
             "avg_sand_pct": "sand_pct",
             "drainage_class": "drainage_class",
             "dominant_soil": "dominant_soil",
+            "dominant_mapunit_name": "dominant_mapunit_name",
+            "dominant_mapunit_pct": "dominant_mapunit_pct",
             "erosion_risk": "erosion_risk",
+            "k_factor": "k_factor",
+            "erosion_evidence_source": "erosion_evidence_source",
+            "om_depth_cm": "om_depth_cm",
+            "ph_depth_cm": "ph_depth_cm",
+            "cec_depth_cm": "cec_depth_cm",
+            "awc_profile_depth_cm": "awc_profile_depth_cm",
         }
         df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
         cols = ["field_id"] + [v for v in rename.values() if v in set(df.columns) - {"field_id"}]
@@ -212,7 +235,7 @@ def integrate_grower(runtime_dir: str, grower_id: str, year: int) -> pd.DataFram
                     crop_name = cdl_crops.get(fid, "")
                 row["crop_name"] = crop_name
                 row["scene_count"] = ci.get("scene_count", 0)
-                for col in ["ndvi_corn", "ndvi_soybean", "ndvi_corn_peak_95", "ndvi_soybean_peak_95"]:
+                for col in ["mean_ndvi", "peak_ndvi"]:
                     if col in ci and pd.notna(ci[col]):
                         row[col] = round(ci[col], 4)
             else:
@@ -233,7 +256,9 @@ def integrate_grower(runtime_dir: str, grower_id: str, year: int) -> pd.DataFram
                     si = s.iloc[0]
                     for col in ["organic_matter_pct", "soil_ph", "available_water_capacity_in",
                                 "cec_meq100g", "clay_pct", "sand_pct", "drainage_class",
-                                "dominant_soil", "erosion_risk"]:
+                                "dominant_soil", "dominant_mapunit_name", "dominant_mapunit_pct",
+                                "erosion_risk", "k_factor", "erosion_evidence_source",
+                                "om_depth_cm", "ph_depth_cm", "cec_depth_cm", "awc_profile_depth_cm"]:
                         if col in si and pd.notna(si[col]):
                             row[col] = si[col]
 

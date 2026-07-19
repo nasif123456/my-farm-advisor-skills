@@ -23,11 +23,14 @@ data-pipeline skill.
 ## Validation
 
 ```bash
-python scripts/generate_dashboard.py --grower-id iowa-grower --runtime-dir ~/my-farm-advisor-runtime --year 2024
+python scripts/generate_dashboard.py --grower-id <grower-id> --runtime-dir <runtime-path> --year 2024
 ```
 
 Check that:
 - The output HTML contains all 6 dashboard sections
 - Grower and field filters work
 - Missing data is handled gracefully
-- Metric values fall in expected ranges
+- Metric values fall in expected ranges (0-100 for scores, -1 to 1 for raw NDVI)
+- Non-row-crop fields appear in a separate reference section
+- Analytical confidence is displayed per field
+- Weather grid IDs note where fields share a NASA POWER cell

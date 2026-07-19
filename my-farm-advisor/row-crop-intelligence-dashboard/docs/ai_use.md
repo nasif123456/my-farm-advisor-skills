@@ -43,7 +43,7 @@ All AI-generated code, text, and suggestions were reviewed and verified as follo
 ### Analytical Verification
 - One NDVI mean was manually traced from scene TIFF to dashboard output.
 - One GDD calculation was verified by hand.
-- One Soil Health Score was recomputed manually from source data.
+- One Soil Condition Screening Score was recomputed manually from source data.
 
 ### Documentation Review
 - Methodology descriptions were reviewed for accuracy.

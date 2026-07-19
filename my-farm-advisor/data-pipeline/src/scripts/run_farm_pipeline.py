@@ -232,6 +232,16 @@ def main() -> None:
         action="store_true",
         help="Skip DEM terrain ingestion when terrain is explicitly added to a pipeline run",
     )
+    parser.add_argument(
+        "--generate-dashboard",
+        action="store_true",
+        help="Optional: generate a self-contained offline weather dashboard as the final stage",
+    )
+    parser.add_argument(
+        "--no-basemap",
+        action="store_true",
+        help="Skip satellite basemap when generating the dashboard",
+    )
     parser.add_argument("--force", action="store_true", help="Force rerun all steps")
     parser.add_argument(
         "--structure-test",
@@ -319,6 +329,12 @@ def main() -> None:
         ("reporting/generate_ssurgo_cards.py", "SSURGO soil profile cards", (), False),
         ("reporting/generate_farm_html.py", "Self-contained HTML report", (), False),
         ("reporting/generate_farm_markdown.py", "Markdown report", (), False),
+        (
+            "reporting/generate_dashboard.py",
+            "Offline weather dashboard",
+            (),
+            not args.generate_dashboard,
+        ),
     ]
 
     all_ok = True

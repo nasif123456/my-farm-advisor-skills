@@ -67,15 +67,16 @@ def _fallback_field_soil(fields: gpd.GeoDataFrame) -> pd.DataFrame:
             continue
 
         attr_sql = f"""
-        SELECT c.mukey, c.compname, c.comppct_r, c.drainagecl,
+        SELECT mu.muname, c.mukey, c.compname, c.comppct_r, c.drainagecl,
                ch.hzdept_r, ch.hzdepb_r, ch.om_r, ch.ph1to1h2o_r,
                ch.awc_r, ch.claytotal_r, ch.sandtotal_r, ch.silttotal_r,
-               ch.dbthirdbar_r, ch.cec7_r
-        FROM component c
+               ch.dbthirdbar_r, ch.cec7_r, ch.kwfact
+        FROM mapunit mu
+        INNER JOIN component c ON mu.mukey = c.mukey
         LEFT JOIN chorizon ch ON c.cokey = ch.cokey
         WHERE c.mukey IN ({", ".join(repr(m) for m in mukeys)})
           AND c.majcompflag = 'Yes'
-          AND (ch.hzdept_r < 30 OR ch.hzdept_r IS NULL)
+          AND (ch.hzdept_r < 100 OR ch.hzdept_r IS NULL)
         ORDER BY c.mukey, c.comppct_r DESC, ch.hzdept_r ASC
         """
         try:
@@ -84,25 +85,27 @@ def _fallback_field_soil(fields: gpd.GeoDataFrame) -> pd.DataFrame:
             attr_rows = []
 
         for row in attr_rows:
-            if len(row) < 14:
+            if len(row) < 16:
                 continue
             rows.append(
                 {
                     "field_id": field_id,
-                    "mukey": str(row[0]),
-                    "compname": row[1],
-                    "comppct_r": row[2],
-                    "drainagecl": row[3],
-                    "hzdept_r": row[4],
-                    "hzdepb_r": row[5],
-                    "om_r": row[6],
-                    "ph1to1h2o_r": row[7],
-                    "awc_r": row[8],
-                    "claytotal_r": row[9],
-                    "sandtotal_r": row[10],
-                    "silttotal_r": row[11],
-                    "dbthirdbar_r": row[12],
-                    "cec7_r": row[13],
+                    "muname": row[0],
+                    "mukey": str(row[1]),
+                    "compname": row[2],
+                    "comppct_r": row[3],
+                    "drainagecl": row[4],
+                    "hzdept_r": row[5],
+                    "hzdepb_r": row[6],
+                    "om_r": row[7],
+                    "ph1to1h2o_r": row[8],
+                    "awc_r": row[9],
+                    "claytotal_r": row[10],
+                    "sandtotal_r": row[11],
+                    "silttotal_r": row[12],
+                    "dbthirdbar_r": row[13],
+                    "cec7_r": row[14],
+                    "kwfact": row[15],
                 }
             )
 
@@ -122,6 +125,7 @@ def _fallback_field_soil(fields: gpd.GeoDataFrame) -> pd.DataFrame:
         "silttotal_r",
         "dbthirdbar_r",
         "cec7_r",
+        "kwfact",
     ]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
@@ -195,6 +199,114 @@ def _write_field_polygon_caches(
             continue
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         polygons.to_file(cache_path, driver="GeoJSON")
+
+
+def _compute_weighted_soil_summary(soil_data: pd.DataFrame) -> pd.DataFrame:
+    """Field-level weighted summary from SSURGO component x horizon data.
+
+    Depth separation:
+      - OM, pH, CEC, clay, sand: surface interval (0-30 cm) weighted by
+        comppct_r and the horizon overlap with 0-30 cm.
+      - AWC: full profile (0-100 cm) — computed per-map-unit then averaged
+        across map units to avoid double-counting.
+
+    Drainage, dominant soil, and map-unit name come from the highest-weight
+    (comppct_r x surface or full thickness) component-horizon row.
+    """
+    df = soil_data.copy()
+    df["hzthick_cm"] = (df["hzdepb_r"] - df["hzdept_r"]).clip(lower=0)
+    df["hzthick_in"] = df["hzthick_cm"] / 2.54
+    comppct = df["comppct_r"].fillna(0)
+
+    # ── Surface (0-30 cm) overlap weight for OM, pH, CEC, clay, sand ──
+    sfc_top = df["hzdept_r"].clip(lower=0)
+    sfc_bot = df["hzdepb_r"].clip(upper=30)
+    df["_sfc_overlap"] = (sfc_bot - sfc_top).clip(lower=0)
+    df["_w_sfc"] = comppct * df["_sfc_overlap"]
+
+    # ── Full profile weight for AWC ──
+    df["_w_full"] = comppct * df["hzthick_cm"]
+
+    def _w_mean(s: pd.Series, w: pd.Series) -> float:
+        mask = s.notna() & w.notna() & (w > 0)
+        if not mask.any():
+            return float("nan")
+        return float((s[mask] * w[mask]).sum() / w[mask].sum())
+
+    def _erosion_risk(kw_mean: float) -> str | None:
+        if pd.isna(kw_mean):
+            return None
+        if kw_mean >= 0.40:
+            return "high"
+        if kw_mean >= 0.25:
+            return "moderate"
+        return "low"
+
+    records = []
+    for field_id, grp in df.groupby("field_id"):
+        w_sfc = grp["_w_sfc"]
+        best_idx = w_sfc.idxmax() if (w_sfc > 0).any() else grp.index[0]
+        best_row = grp.loc[best_idx]
+
+        # Map unit count and sets
+        mukeys_in_field = grp["mukey"].unique()
+        n_mu = len(mukeys_in_field)
+
+        # AWC: compute per-mukey, then average across map units
+        aws_per_mukey = []
+        for _, mu in grp.groupby("mukey"):
+            mu_pct = mu["comppct_r"].fillna(0)
+            mu_aws = (mu["awc_r"] * mu["hzthick_in"] * mu_pct / 100.0).sum()
+            aws_per_mukey.append(mu_aws)
+        field_aws = sum(aws_per_mukey) / n_mu if aws_per_mukey else 0.0
+
+        kw_vals = pd.to_numeric(grp["kwfact"], errors="coerce")
+        kw_mean = _w_mean(kw_vals, w_sfc) if not kw_vals.isna().all() else float("nan")
+
+        # Dominant map-unit percentage (comppct_r of the highest-weight component)
+        dom_comppct = float(best_row["comppct_r"]) if pd.notna(best_row.get("comppct_r")) else None
+
+        # Erosion evidence
+        erisk = _erosion_risk(kw_mean)
+        if erisk is not None:
+            er_source = f"SSURGO K-factor (kwfact) — soil erodibility only, not full RUSLE (mean K={kw_mean:.4f})"
+        else:
+            er_source = None
+
+        records.append(
+            {
+                "field_id": field_id,
+                "n_mukeys": n_mu,
+                "n_components": int(grp["compname"].nunique()),
+                "n_horizons": len(grp),
+                "avg_om_pct": _w_mean(grp["om_r"], w_sfc),
+                "avg_ph": _w_mean(grp["ph1to1h2o_r"], w_sfc),
+                "total_aws_inches": round(field_aws, 4),
+                "avg_cec": _w_mean(grp["cec7_r"], w_sfc),
+                "avg_clay_pct": _w_mean(grp["claytotal_r"], w_sfc),
+                "avg_sand_pct": _w_mean(grp["sandtotal_r"], w_sfc),
+                "dominant_soil": str(best_row["compname"]),
+                "dominant_mapunit_name": str(best_row.get("muname", "")),
+                "dominant_mapunit_pct": dom_comppct,
+                "drainage_class": str(best_row["drainagecl"]),
+                "ph_constraint": None,
+                "erosion_risk": erisk,
+                "k_factor": round(kw_mean, 4) if not pd.isna(kw_mean) else None,
+                "erosion_evidence_source": er_source,
+                "om_depth_cm": 30,
+                "ph_depth_cm": 30,
+                "cec_depth_cm": 30,
+                "awc_profile_depth_cm": 100,
+                "ssurgo_coverage_pct": None,
+                "unmapped_area_pct": None,
+                "soil_aggregation_method": (
+                    "component-percentage weighted (comppct_r x horizon overlap with target depth); "
+                    "OM/pH/CEC/clay/sand: surface 0-30 cm; AWC: root-zone 0-100 cm per-map-unit then averaged"
+                ),
+            }
+        )
+
+    return pd.DataFrame(records)
 
 
 def main():
@@ -272,37 +384,17 @@ def main():
     soil_data = download_soil(
         fields,
         field_id_column="field_id",
-        max_depth_cm=30,
+        max_depth_cm=100,
         output_path=str(farm_sample_output),
     )
 
     if soil_data.empty:
         print("  Primary SSURGO download returned no rows; querying SDA fallback summaries...")
         soil_data = _fallback_field_soil(fields)
-        if not soil_data.empty:
-            soil_data.to_csv(farm_full_output, index=False)
-            soil_data.to_csv(farm_sample_output, index=False)
-
     if not soil_data.empty:
         soil_data.to_csv(farm_full_output, index=False)
         soil_data.to_csv(farm_sample_output, index=False)
-        grouped = (
-            soil_data.groupby("field_id", as_index=False)
-            .agg(
-                n_mukeys=("mukey", "nunique"),
-                n_components=("compname", "nunique"),
-                n_horizons=("mukey", "count"),
-                avg_om_pct=("om_r", "mean"),
-                avg_ph=("ph1to1h2o_r", "mean"),
-                total_aws_inches=("awc_r", "sum"),
-                avg_cec=("cec7_r", "mean"),
-                avg_clay_pct=("claytotal_r", "mean"),
-                avg_sand_pct=("sandtotal_r", "mean"),
-                dominant_soil=("compname", "first"),
-                drainage_class=("drainagecl", "first"),
-            )
-            .assign(ph_constraint="none", erosion_risk="moderate")
-        )
+        grouped = _compute_weighted_soil_summary(soil_data)
         grouped.to_csv(farm_summary_output, index=False)
 
         if field_slug_map:

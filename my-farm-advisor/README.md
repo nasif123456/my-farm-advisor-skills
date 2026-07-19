@@ -311,6 +311,43 @@ This skill is the main farm-specific intelligence layer. The rest of the reposit
 - Sentinel-2 workflows: [`imagery/sentinel2-imagery/GUIDE.md`](imagery/sentinel2-imagery/GUIDE.md)
 - Weather workflows: [`weather/nasa-power-weather/GUIDE.md`](weather/nasa-power-weather/GUIDE.md)
 
+## Row Crop Dashboard
+
+The final-project grower-level dashboard workflow lives in:
+
+- [`row-crop-intelligence-dashboard/SKILL.md`](row-crop-intelligence-dashboard/SKILL.md)
+- [`row-crop-intelligence-dashboard/README.md`](row-crop-intelligence-dashboard/README.md)
+
+Use it to generate one integrated HTML dashboard covering all fields for a selected grower.
+
+### Run It
+
+```bash
+python row-crop-intelligence-dashboard/scripts/generate_dashboard.py \
+  --grower-id <grower_id> \
+  --runtime-dir /absolute/path/to/my-farm-advisor-runtime \
+  --year 2024
+```
+
+Example:
+
+```bash
+python row-crop-intelligence-dashboard/scripts/generate_dashboard.py \
+  --grower-id nebraska-grower \
+  --runtime-dir /home/coder/my-farm-advisor-runtime \
+  --year 2024
+```
+
+### Runtime Output
+
+The generated dashboard is written to:
+
+```text
+<runtime-dir>/dashboard_outputs/<grower-id>/dashboard.html
+```
+
+Supporting runtime files in the same folder include the dashboard field summary, field boundaries, metadata, interpretations, and weather/soil exports used by the renderer.
+
 ## Data and Runtime Notes
 
 - This skill suite ships large supporting examples and shared data assets.

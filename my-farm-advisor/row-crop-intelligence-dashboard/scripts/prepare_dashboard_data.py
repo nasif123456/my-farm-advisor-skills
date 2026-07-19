@@ -93,8 +93,14 @@ def prepare(runtime_dir: str, grower_id: str, year: int, output_dir: str) -> dic
         json.dump(interp, f, indent=2)
 
     soil_path = out / "soil_summary.csv"
-    soil_cols = [c for c in scored.columns if c.startswith(("soil_", "organic", "drainage", "available",
-                                                              "cec", "clay", "sand", "erosion"))
+    soil_keywords = ("soil_", "organic", "drainage", "available",
+                     "cec", "clay", "sand", "erosion",
+                     "om_score", "ph_", "awc_score", "cec_score",
+                     "om_depth", "awc_profile", "dominant_mapunit",
+                     "k_factor", "ssurgo_", "awc_validation",
+                     "soil_aggregation")
+    soil_cols = [c for c in scored.columns
+                 if any(c.startswith(k) or c == k for k in soil_keywords)
                  or c == "field_id"]
     if soil_cols:
         soil_df = scored[[c for c in soil_cols if c in scored.columns]]
@@ -107,8 +113,9 @@ def prepare(runtime_dir: str, grower_id: str, year: int, output_dir: str) -> dic
         "field_count": len(scored),
         "generated_at": str(pd.Timestamp.now()),
         "scores_included": [c for c in scored.columns if c.endswith("_score")
-                           or c in ("field_intelligence_score", "crop_stress_indicator",
-                                   "conservation_priority_score")],
+                           or c in ("fis_score", "crop_stress_apparent",
+                                   "conservation_priority_score",
+                                   "ndvi_condition_score")],
     }
     with open(out / "dashboard_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)

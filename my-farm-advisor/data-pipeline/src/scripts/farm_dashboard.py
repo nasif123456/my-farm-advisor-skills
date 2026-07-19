@@ -341,6 +341,8 @@ def _run_pipeline_for_farm(
     farm_name: str,
     inventory_path: Path,
     force: bool,
+    generate_dashboard: bool = False,
+    no_basemap: bool = False,
 ) -> None:
     cmd = [
         sys.executable,
@@ -358,6 +360,10 @@ def _run_pipeline_for_farm(
     ]
     if force:
         cmd.append("--force")
+    if generate_dashboard:
+        cmd.append("--generate-dashboard")
+    if no_basemap:
+        cmd.append("--no-basemap")
     _run(cmd)
 
 
@@ -442,6 +448,8 @@ def create_command(args: argparse.Namespace) -> None:
         farm_name=farm_name,
         inventory_path=inventory,
         force=args.force,
+        generate_dashboard=bool(getattr(args, "generate_dashboard", False)),
+        no_basemap=bool(getattr(args, "no_basemap", False)),
     )
 
     print(
@@ -517,6 +525,8 @@ def refresh_command(args: argparse.Namespace) -> None:
             farm_name=item["farm_name"],
             inventory_path=inventory,
             force=args.force,
+            generate_dashboard=bool(getattr(args, "generate_dashboard", False)),
+            no_basemap=bool(getattr(args, "no_basemap", False)),
         )
 
     print(
@@ -531,6 +541,25 @@ def refresh_command(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
+
+
+def dashboard_generate_command(args: argparse.Namespace) -> None:
+    """Generate an offline weather dashboard for an existing farm."""
+    sys.path.insert(0, str(SCRIPTS_DIR / "reporting"))
+    from generate_dashboard import main as dashboard_main  # type: ignore[import-untyped]
+
+    sys.argv = [
+        "generate_dashboard.py",
+    ]
+    if args.farm_dir:
+        sys.argv.extend(["--farm-dir", args.farm_dir])
+    if args.growers_dir:
+        sys.argv.extend(["--growers-dir", args.growers_dir])
+    if args.output:
+        sys.argv.extend(["--output", args.output])
+    if args.no_basemap:
+        sys.argv.append("--no-basemap")
+    dashboard_main()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -584,6 +613,16 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--cdl-scope", choices=["conus", "state"], default="conus")
     create.add_argument("--cdl-latest-year", type=int, default=2025)
     create.add_argument("--cdl-window-years", type=int, default=5)
+    create.add_argument(
+        "--generate-dashboard",
+        action="store_true",
+        help="Generate offline weather dashboard as final pipeline stage",
+    )
+    create.add_argument(
+        "--no-basemap",
+        action="store_true",
+        help="Skip satellite basemap in dashboard",
+    )
     create.add_argument("--force", action="store_true")
     create.set_defaults(handler=create_command)
 
@@ -593,8 +632,43 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--scope", choices=["farm", "grower", "all"], default="farm")
     refresh.add_argument("--grower-slug", default=None)
     refresh.add_argument("--farm-slug", default=None)
+    refresh.add_argument(
+        "--generate-dashboard",
+        action="store_true",
+        help="Generate offline weather dashboard as final pipeline stage",
+    )
+    refresh.add_argument(
+        "--no-basemap",
+        action="store_true",
+        help="Skip satellite basemap in dashboard",
+    )
     refresh.add_argument("--force", action="store_true")
     refresh.set_defaults(handler=refresh_command)
+
+    dashboard = sub.add_parser(
+        "dashboard", help="Generate an offline weather dashboard for an existing farm"
+    )
+    dashboard.add_argument(
+        "--farm-dir",
+        default=None,
+        help="Explicit path to a farm output directory",
+    )
+    dashboard.add_argument(
+        "--growers-dir",
+        default=None,
+        help="Explicit path to the growers root directory",
+    )
+    dashboard.add_argument(
+        "--output",
+        default=None,
+        help="Explicit output path for the generated HTML",
+    )
+    dashboard.add_argument(
+        "--no-basemap",
+        action="store_true",
+        help="Skip satellite basemap acquisition",
+    )
+    dashboard.set_defaults(handler=dashboard_generate_command)
 
     return parser
 

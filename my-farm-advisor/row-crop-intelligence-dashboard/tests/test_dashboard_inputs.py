@@ -48,8 +48,8 @@ def test_load_and_save(tmp_path: Path | None = None):
     df = pd.DataFrame({
         "field_id": ["f1"],
         "area_acres": [100],
-        "ndvi_score": [50],
-        "field_intelligence_score": [60.5],
+        "ndvi_condition_score": [50.0],
+        "fis_score": [60.5],
         "risk_category": ["Moderate"],
     })
     df.to_csv(tmp_path / "field_summary.csv", index=False)
@@ -61,7 +61,7 @@ def test_load_and_save(tmp_path: Path | None = None):
     d = load_dashboard_data(str(tmp_path))
     assert not d.field_summary.empty
     assert d.metadata["grower_id"] == "test"
-    assert d.field_summary["field_intelligence_score"].iloc[0] == 60.5
+    assert d.field_summary["fis_score"].iloc[0] == 60.5
 
 
 def test_missing_data_dir():

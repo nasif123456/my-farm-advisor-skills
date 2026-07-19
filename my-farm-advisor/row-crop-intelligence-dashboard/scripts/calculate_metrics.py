@@ -30,9 +30,9 @@ def main():
     print(f"Metrics computed for {len(result)} fields -> {out_path}")
 
     score_cols = [c for c in result.columns if c.endswith("_score") or c in (
-        "field_intelligence_score", "crop_stress_indicator",
+        "fis_score", "crop_stress_apparent",
         "conservation_priority_score", "soil_health_score",
-        "weather_suitability_score", "ndvi_score", "ndvi_variability_score"
+        "weather_suitability_score", "ndvi_condition_score",
     )]
     available = [c for c in score_cols if c in result.columns]
     if available:
